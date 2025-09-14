@@ -1,0 +1,122 @@
+version: "3.9"
+
+x-redpanda-common: &redpanda-common
+  image: redpandadata/redpanda:v24.1.7
+  healthcheck:
+    test: ["CMD", "bash", "-lc", "rpk cluster info -X brokers=localhost:${HOST_PORT} || exit 1"]
+    interval: 10s
+    timeout: 5s
+    retries: 20
+  volumes:
+    - ../deploy/data/${NODE_NAME}:/var/lib/redpanda
+
+services:
+  redpanda-0:
+    <<: *redpanda-common
+    container_name: redpanda-0
+    environment:
+      HOST_PORT: 9092
+      NODE_NAME: redpanda-0
+    command:
+      - redpanda start
+      - --overprovisioned
+      - --smp=1
+      - --memory=1024M
+      - --reserve-memory=0M
+      - --node-id=0
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092,OUTSIDE://0.0.0.0:19092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda-0:9092,OUTSIDE://localhost:19092
+      - --rpc-addr=0.0.0.0:33145
+      - --advertise-rpc-addr=redpanda-0:33145
+      - --seed-server=redpanda-0:33145
+      - --set redpanda.auto_create_topics_enabled=true
+    ports:
+      - "19092:19092"    # external client port
+      - "9644:9644"      # admin api (node 0 only for console)
+    networks: { default: {} }
+
+  redpanda-1:
+    <<: *redpanda-common
+    container_name: redpanda-1
+    environment:
+      HOST_PORT: 9093
+      NODE_NAME: redpanda-1
+    command:
+      - redpanda start
+      - --overprovisioned
+      - --smp=1
+      - --memory=1024M
+      - --reserve-memory=0M
+      - --node-id=1
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda-1:9092
+      - --rpc-addr=0.0.0.0:33145
+      - --advertise-rpc-addr=redpanda-1:33145
+      - --seed-server=redpanda-0:33145
+      - --set redpanda.auto_create_topics_enabled=true
+    networks: { default: {} }
+
+  redpanda-2:
+    <<: *redpanda-common
+    container_name: redpanda-2
+    environment:
+      HOST_PORT: 9094
+      NODE_NAME: redpanda-2
+    command:
+      - redpanda start
+      - --overprovisioned
+      - --smp=1
+      - --memory=1024M
+      - --reserve-memory=0M
+      - --node-id=2
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda-2:9092
+      - --rpc-addr=0.0.0.0:33145
+      - --advertise-rpc-addr=redpanda-2:33145
+      - --seed-server=redpanda-0:33145
+      - --set redpanda.auto_create_topics_enabled=true
+    networks: { default: {} }
+
+  console:
+    image: redpandadata/console:latest
+    environment:
+      KAFKA_BROKERS: redpanda-0:9092,redpanda-1:9092,redpanda-2:9092
+      REDPANDA_ADMIN_API: http://redpanda-0:9644
+      SCHEMAREGISTRY_ENABLED: "true"
+      SCHEMAREGISTRY_URL: http://schema-registry:8081
+    ports:
+      - "8080:8080"
+    depends_on:
+      redpanda-0: { condition: service_healthy }
+      redpanda-1: { condition: service_started }
+      redpanda-2: { condition: service_started }
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.1
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "redpanda-0:9092,redpanda-1:9092,redpanda-2:9092"
+      SCHEMA_REGISTRY_LOG4J_ROOT_LOGLEVEL: WARN
+    ports:
+      - "8081:8081"
+    depends_on:
+      redpanda-0: { condition: service_healthy }
+
+  orders-api:
+    build:
+      context: ../services/orders-api
+      dockerfile: Dockerfile
+    environment:
+      KAFKA_BOOTSTRAP: redpanda-0:9092,redpanda-1:9092,redpanda-2:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      ORDER_SCHEMA_PATH: /app/contracts/jsonschema/order.received.v1.json
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ../contracts:/app/contracts:ro
+      - ../services/orders-api/src:/app/src:rw
+    ports:
+      - "8001:8000"
+    depends_on:
+      schema-registry: { condition: service_started }
+      redpanda-0: { condition: service_healthy }

@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CreateOrder",
+  "type": "object",
+  "required": [
+    "order_id",
+    "analysis_type",
+    "sample_link",
+    "customer",
+    "urgency",
+    "summary",
+    "notes",
+    "confidence"
+  ],
+  "properties": {
+    "order_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Idempotency key"
+    },
+    "analysis_type": {
+      "type": "string",
+      "enum": ["bcr_abl", "snp", "others"]
+    },
+    "sample_link": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "format": "uri"
+      },
+      "description": "List of sample URLs (FASTQ, etc.)"
+    },
+    "customer": {
+      "type": "object",
+      "required": ["name","company","email","inferred_from_domain"],
+      "properties": {
+        "name": { "type": ["string","null"] },
+        "company": { "type": ["string","null"] },
+        "email": { "type": ["string","null"], "format": "email" },
+        "inferred_from_domain": { "type": ["boolean","null"] }
+      },
+      "additionalProperties": false
+    },
+    "urgency": {
+      "type": "string",
+      "enum": ["high","medium","low"],
+      "default": "medium"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "notes": {
+      "type": "string"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    }
+  },
+  "additionalProperties": false
+}
